@@ -19,6 +19,7 @@
 package filter
 
 import (
+	"github.com/rabbitstack/fibratus/pkg/config"
 	"github.com/rabbitstack/fibratus/pkg/kevent"
 	"github.com/rabbitstack/fibratus/pkg/kevent/kparams"
 	"github.com/rabbitstack/fibratus/pkg/kevent/ktypes"
@@ -30,14 +31,26 @@ import (
 	"time"
 )
 
+var cfg = &config.Config{
+	Kstream: config.KstreamConfig{
+		EnableHandleKevents:   true,
+		EnableNetKevents:      true,
+		EnableRegistryKevents: true,
+		EnableFileIOKevents:   true,
+		EnableImageKevents:    true,
+		EnableThreadKevents:   true,
+	},
+	PE: pe.Config{Enabled: true},
+}
+
 func TestFilterCompile(t *testing.T) {
-	f := New(`ps.name = 'cmd.exe'`)
+	f := New(`ps.name = 'cmd.exe'`, cfg)
 	require.NoError(t, f.Compile())
-	f = New(`'cmd.exe'`)
+	f = New(`'cmd.exe'`, cfg)
 	require.EqualError(t, f.Compile(), "expected at least one field or operator but zero found")
-	f = New(`ps.name`)
+	f = New(`ps.name`, cfg)
 	require.EqualError(t, f.Compile(), "expected at least one field or operator but zero found")
-	f = New(`ps.name =`)
+	f = New(`ps.name =`, cfg)
 	require.EqualError(t, f.Compile(), "ps.name =\n          ^ expected field, string, number, bool, ip")
 }
 
@@ -83,7 +96,7 @@ func TestFilterRunProcessKevent(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		f := New(tt.filter)
+		f := New(tt.filter, cfg)
 		err := f.Compile()
 		if err != nil {
 			t.Fatal(err)
@@ -121,7 +134,7 @@ func TestFilterRunThreadKevent(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		f := New(tt.filter)
+		f := New(tt.filter, cfg)
 		err := f.Compile()
 		if err != nil {
 			t.Fatal(err)
@@ -129,6 +142,61 @@ func TestFilterRunThreadKevent(t *testing.T) {
 		matches := f.Run(kevt)
 		if matches != tt.matches {
 			t.Errorf("%d. %q thread filter mismatch: exp=%t got=%t", i, tt.filter, tt.matches, matches)
+		}
+	}
+}
+
+func TestFilterRunFileKevent(t *testing.T) {
+	kevt := &kevent.Kevent{
+		Type:        ktypes.CreateFile,
+		Tid:         2484,
+		PID:         859,
+		CPU:         1,
+		Seq:         2,
+		Name:        "CreateFile",
+		Category:    ktypes.File,
+		Host:        "archrabbit",
+		Description: "Creates or opens a new file, directory, I/O device, pipe, console",
+		Kparams: kevent.Kparams{
+			kparams.FileObject:    {Name: kparams.FileObject, Type: kparams.Uint64, Value: uint64(12456738026482168384)},
+			kparams.FileName:      {Name: kparams.FileName, Type: kparams.UnicodeString, Value: "C:\\Windows\\system32\\user32.dll"},
+			kparams.FileType:      {Name: kparams.FileType, Type: kparams.AnsiString, Value: "file"},
+			kparams.FileOperation: {Name: kparams.FileOperation, Type: kparams.AnsiString, Value: "open"},
+		},
+		Metadata: map[string]string{"foo": "bar", "fooz": "barzz"},
+	}
+
+	var tests = []struct {
+		filter  string
+		matches bool
+	}{
+
+		{`file.name = 'C:\\Windows\\system32\\user32.dll'`, true},
+		{`file.extension  = '.dll'`, true},
+		{`file.extension not contains '.exe'`, true},
+		{`file.extension not contains '.exe' and file.extension contains '.dll'`, true},
+		{`file.extension not contains '.exe' and file.extension not contains '.com'`, true},
+		{`file.extension not contains '.exe' and file.extension not contains '.com' and file.extension not in ('.vba', '.exe')`, true},
+		{`file.extension not in ('.exe', '.com')`, true},
+		{`file.extension not in ('.exe', '.dll')`, false},
+		{`file.name matches 'C:\\*\\user32.dll'`, true},
+		{`file.name not matches 'C:\\*.exe'`, true},
+		{`file.name imatches 'C:\\*\\USER32.dll'`, true},
+		{`file.name matches ('C:\\*\\user3?.dll', 'C:\\*\\user32.*')`, true},
+		{`file.name contains ('C:\\Windows\\system32\\kernel32.dll', 'C:\\Windows\\system32\\user32.dll')`, true},
+		{`file.name not matches ('C:\\*.exe', 'C:\\Windows\\*.com')`, true},
+		{`file.name endswith ('.exe', 'kernel32.dll', 'user32.dll')`, true},
+	}
+
+	for i, tt := range tests {
+		f := New(tt.filter, cfg)
+		err := f.Compile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		matches := f.Run(kevt)
+		if matches != tt.matches {
+			t.Errorf("%d. %q file filter mismatch: exp=%t got=%t", i, tt.filter, tt.matches, matches)
 		}
 	}
 }
@@ -176,7 +244,7 @@ func TestFilterRunKevent(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		f := New(tt.filter)
+		f := New(tt.filter, cfg)
 		err := f.Compile()
 		if err != nil {
 			t.Fatal(err)
@@ -209,10 +277,49 @@ func TestFilterRunNetKevent(t *testing.T) {
 		{`net.dip = 216.58.201.174`, true},
 		{`net.dip != 216.58.201.174`, false},
 		{`net.dip != 116.58.201.174`, true},
+		{`net.dip not in ('116.58.201.172', '16.58.201.176')`, true},
 	}
 
 	for i, tt := range tests {
-		f := New(tt.filter)
+		f := New(tt.filter, cfg)
+		err := f.Compile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		matches := f.Run(kevt)
+		if matches != tt.matches {
+			t.Errorf("%d. %q net filter mismatch: exp=%t got=%t", i, tt.filter, tt.matches, matches)
+		}
+	}
+}
+
+func TestFilterRunRegistryKevent(t *testing.T) {
+	kevt := &kevent.Kevent{
+		Type: ktypes.RegSetValue,
+		Tid:  2484,
+		PID:  859,
+		Kparams: kevent.Kparams{
+			kparams.RegKeyName:   {Name: kparams.RegKeyName, Type: kparams.UnicodeString, Value: `HKEY_LOCAL_MACHINE\SYSTEM\Setup\Pid`},
+			kparams.RegValue:     {Name: kparams.RegValue, Type: kparams.Uint32, Value: 10234},
+			kparams.RegValueType: {Name: kparams.RegValueType, Type: kparams.AnsiString, Value: "DWORD"},
+			kparams.NTStatus:     {Name: kparams.NTStatus, Type: kparams.AnsiString, Value: "success"},
+			kparams.RegKeyHandle: {Name: kparams.RegKeyHandle, Type: kparams.HexInt64, Value: kparams.NewHex(uint64(18446666033449935464))},
+		},
+	}
+
+	var tests = []struct {
+		filter  string
+		matches bool
+	}{
+
+		{`registry.status startswith ('key not', 'succ')`, true},
+		{`registry.key.name icontains ('hkey_local_machine', 'HKEY_LOCAL')`, true},
+		{`registry.value = 10234`, true},
+		{`registry.value.type in ('DWORD', 'QWORD')`, true},
+	}
+
+	for i, tt := range tests {
+		f := New(tt.filter, cfg)
 		err := f.Compile()
 		if err != nil {
 			t.Fatal(err)
@@ -260,7 +367,7 @@ func TestFilterRunPE(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		f := New(tt.filter)
+		f := New(tt.filter, cfg)
 		err := f.Compile()
 		if err != nil {
 			t.Fatal(err)
@@ -275,7 +382,7 @@ func TestFilterRunPE(t *testing.T) {
 
 func BenchmarkFilterRun(b *testing.B) {
 	b.ReportAllocs()
-	f := New(`ps.name = 'mimikatz.exe' or ps.name contains 'svc'`)
+	f := New(`ps.name = 'mimikatz.exe' or ps.name contains 'svc'`, cfg)
 	require.NoError(b, f.Compile())
 
 	kpars := kevent.Kparams{

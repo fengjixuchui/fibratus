@@ -58,12 +58,13 @@ To build Fibratus directly from source code you have satisfy the following requi
 
 1. Download the `msys2` installer and follow the instructions [here](https://www.msys2.org/).
   - open the `msys2` shell (by default located in `C:\msys2\msys2.exe`). You can also access it from the `MSYS2 64-bit` Start Menu item.
-  - install the `MinGW` compiler toolchain
-    - `pacman -S mingw-w64-x86_64-gcc`
-2. [Download](https://www.python.org/ftp/python/3.7.9/python-3.7.9-amd64.exe) and install the `Python 3.7`. Assuming the Python distribution was installed in `C:\Python37`, set the `PKG_CONFIG_PATH` environment variable to the location of the `pkg-config\python-37.pc` file within the `fibratus` directory.
-  - `set PKG_CONFIG_PATH=<python-37.pc absolute path>`
+  - install the `MinGW` compiler toolchain along with other dependencies:
+    - `pacman -S base-devel mingw-w64-x86_64-openssl mingw-w64-x86_64-gcc`
+2. [Download](https://www.python.org/ftp/python/3.7.9/python-3.7.9-amd64.exe) and install the `Python 3.7`. Assuming the Python distribution was installed in `C:\Python37`, set the `PKG_CONFIG_PATH` environment variable to the location of the `pkg-config` directory within the `fibratus` directory.
+  - `set PKG_CONFIG_PATH=<pkg-config absolute path>`
 3. Build `libyara`
-  - clone the `yara` repository into the path visible to the `msys2` environment
+  - clone the `yara` repository into the path visible to the `msys2` environment. This is ideally done from the `MSYS2 64-bit` shell.
+    - `pacman -S git`
     - `git clone https://github.com/VirusTotal/yara.git`
     - go to the `yara` repository you previously cloned. Run the following commands:
       - `autoreconf -fiv`
@@ -72,23 +73,22 @@ To build Fibratus directly from source code you have satisfy the following requi
 
 ### Building the executable {docsify-ignore}
 
-The **optional dependencies are only needed** if you'll be building features that interop with the C code. The Go compiler is instructed to build all features by default, but you can circumvent compiling certain features through build flags by setting the following values:
+The **optional dependencies are only needed** if you'll be building features that interop with the C code. The Go compiler is instructed to ignore all features that trigger the [cgo](https://golang.org/cmd/cgo/), but you can control which features are built into Fibratus through the following build flags:
 
 - `filament`: compiles Fibratus with filaments support
 - `kcap`: compiles Fibratus with support for capturing/replaying kcap files
 - `yara`: builds Fibratus with support for [Yara](https://virustotal.github.io/yara/) pattern matching
 
-To build the Fibratus binary with the filaments support, you would run the following commands within the `fibratus` directory:
+To build the Fibratus binary without filament, kcap nor yara features, run the following command from the `cmd` shell and within the`fibratus` directory:
 
 ```
-$ set TAGS=filament
 $ make
 ```
 
-To avoid triggering the [cgo](https://golang.org/cmd/cgo/) and thus producing pure Go code, run the following commands:
+To produce the Fibratus binary with the filaments support, you would run the following commands:
 
 ```
-$ set TAGS=""
+$ set TAGS=filament
 $ make
 ```
 

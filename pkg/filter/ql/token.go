@@ -45,12 +45,14 @@ const (
 	opBeg
 	and        // and
 	or         // or
-	not        // not
 	in         // in
+	not        // not
 	contains   // contains
 	icontains  // icontains
 	startswith // startswith
 	endswith   // endswith
+	matches    // matches
+	imatches   // imatches
 	eq         // =
 	neq        // !=
 	lt         // <
@@ -69,7 +71,7 @@ var keywords map[string]token
 
 func init() {
 	keywords = make(map[string]token)
-	for _, tok := range []token{and, or, contains, icontains, not, in, startswith, endswith} {
+	for _, tok := range []token{and, or, contains, icontains, in, not, startswith, endswith, matches, imatches} {
 		keywords[strings.ToLower(tokens[tok])] = tok
 	}
 }
@@ -94,10 +96,12 @@ var tokens = [...]string{
 	or:         "OR",
 	contains:   "CONTAINS",
 	icontains:  "ICONTAINS",
-	not:        "NOT",
 	in:         "IN",
+	not:        "NOT",
 	startswith: "STARTSWITH",
 	endswith:   "ENDSWITH",
+	matches:    "MATCHES",
+	imatches:   "IMATCHES",
 
 	eq:  "=",
 	neq: "!=",
@@ -130,10 +134,12 @@ func (tok token) precedence() int {
 		return 1
 	case and:
 		return 2
-	case eq, neq, lt, lte, gt, gte:
+	case not:
 		return 3
-	case in, contains, icontains, startswith, endswith:
+	case eq, neq, lt, lte, gt, gte:
 		return 4
+	case in, contains, icontains, startswith, endswith, matches, imatches:
+		return 5
 	}
 	return 0
 }

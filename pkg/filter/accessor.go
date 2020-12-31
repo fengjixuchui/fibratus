@@ -38,6 +38,21 @@ type accessor interface {
 	get(f fields.Field, kevt *kevent.Kevent) (kparams.Value, error)
 }
 
+// getAccessors initializes and returns all available accessors.
+func getAccessors() []accessor {
+	return []accessor{
+		newPSAccessor(),
+		newPEAccessor(),
+		newFileAccessor(),
+		newKevtAccessor(),
+		newImageAccessor(),
+		newThreadAccessor(),
+		newHandleAccessor(),
+		newNetworkAccessor(),
+		newRegistryAccessor(),
+	}
+}
+
 // kevtAccessor extracts kernel event specific values.
 type kevtAccessor struct{}
 
@@ -337,6 +352,12 @@ func (l *fileAccessor) get(f fields.Field, kevt *kevent.Kevent) (kparams.Value, 
 		return kevt.Kparams.GetUint64(kparams.FileObject)
 	case fields.FileType:
 		return kevt.Kparams.GetString(kparams.FileType)
+	case fields.FileExtension:
+		file, err := kevt.Kparams.GetString(kparams.FileName)
+		if err != nil {
+			return nil, err
+		}
+		return filepath.Ext(file), nil
 	}
 	return nil, nil
 }
@@ -399,12 +420,12 @@ func (r *registryAccessor) get(f fields.Field, kevt *kevent.Kevent) (kparams.Val
 	return nil, nil
 }
 
-// netAccessor deals with extracting the network specific kernel event parameters.
-type netAccessor struct{}
+// networkAccessor deals with extracting the network specific kernel event parameters.
+type networkAccessor struct{}
 
-func newNetAccessor() accessor { return &netAccessor{} }
+func newNetworkAccessor() accessor { return &networkAccessor{} }
 
-func (n *netAccessor) get(f fields.Field, kevt *kevent.Kevent) (kparams.Value, error) {
+func (n *networkAccessor) get(f fields.Field, kevt *kevent.Kevent) (kparams.Value, error) {
 	switch f {
 	case fields.NetDIP:
 		return kevt.Kparams.GetIP(kparams.NetDIP)

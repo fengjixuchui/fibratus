@@ -28,12 +28,11 @@ import (
 
 // Parser builds the binary expression tree from the filter string.
 type Parser struct {
-	s      *bufScanner
-	lparen bool
-	expr   string
+	s    *bufScanner
+	expr string
 }
 
-// NewParsers builds a new parser instance from the expression string.
+// NewParser builds a new parser instance from the expression string.
 func NewParser(expr string) *Parser {
 	return &Parser{s: newBufScanner(strings.NewReader(expr)), expr: expr}
 }
@@ -50,42 +49,33 @@ func (p *Parser) ParseExpr() (Expr, error) {
 		return nil, err
 	}
 
-	// loop over operations and unary exprs and build a tree based on precendence.
+	// loop over operations and unary exprs and build a tree based on precedence.
 	for {
 		// if the next token is NOT an operator then return the expression.
 		op, pos, lit := p.scanIgnoreWhitespace()
 		if !op.isOperator() {
 			p.unscan()
-			if op == rparen && !p.lparen {
-				return nil, newParseError(tokstr(op, lit), []string{"("}, pos, p.expr)
-			}
 			if op != eof && op != rparen {
-				return nil, newParseError(tokstr(op, lit), []string{"operator"}, pos, p.expr)
+				return nil, newParseError(tokstr(op, lit), []string{"operator", ")"}, pos, p.expr)
 			}
 			return root.RHS, nil
 		}
 
 		var rhs Expr
-		if op == in {
-			// parse required ( token
-			if tok, pos, lit := p.scanIgnoreWhitespace(); tok != lparen {
-				return nil, newParseError(tokstr(tok, lit), []string{"("}, pos, p.expr)
+		if op == not {
+			// parse the operator
+			op1, pos, lit := p.scanIgnoreWhitespace()
+			if !op1.isOperator() {
+				return nil, newParseError(tokstr(op, lit), []string{"operator"}, pos, p.expr)
 			}
-
-			// parse a comma-separated list
-			tagKeys, err := p.parseList()
+			// parse the next expression after operator
+			rhs1, err := p.parseUnaryExpr()
 			if err != nil {
 				return nil, err
 			}
-
-			// parse required ) token
-			if tok, pos, lit := p.scanIgnoreWhitespace(); tok != rparen {
-				return nil, newParseError(tokstr(tok, lit), []string{")"}, pos, p.expr)
-			}
-
-			rhs = &ListLiteral{Values: tagKeys}
+			rhs = &BinaryExpr{RHS: rhs1, Op: op1}
 		} else {
-			// Otherwise parse the next expression.
+			// otherwise parse the next expression
 			rhs, err = p.parseUnaryExpr()
 			if err != nil {
 				return nil, err
@@ -99,6 +89,12 @@ func (p *Parser) ParseExpr() (Expr, error) {
 		for node := root; ; {
 			r, ok := node.RHS.(*BinaryExpr)
 			if !ok || r.Op.precedence() >= op.precedence() {
+				if op == not {
+					r := rhs.(*BinaryExpr)
+					r.LHS = node.RHS
+					node.RHS = &NotExpr{Expr: r}
+					break
+				}
 				// Add the new expression here and break.
 				node.RHS = &BinaryExpr{LHS: node.RHS, RHS: rhs, Op: op}
 				break
@@ -112,16 +108,28 @@ func (p *Parser) ParseExpr() (Expr, error) {
 func (p *Parser) parseUnaryExpr() (Expr, error) {
 	// If the first token is a LPAREN then parse it as its own grouped expression.
 	if tok, _, _ := p.scanIgnoreWhitespace(); tok == lparen {
-		p.lparen = true
-		expr, err := p.ParseExpr()
+		// parse a comma-separated list if this looks like a list
+		tagKeys, err := p.parseList()
 		if err != nil {
-			return nil, err
+			p.unscan()
+			// if it fails, try to parse the grouped expression
+			expr, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			// Expect an RPAREN at the end.
+			if tok, pos, lit := p.scanIgnoreWhitespace(); tok != rparen {
+				return nil, newParseError(tokstr(tok, lit), []string{")"}, pos, p.expr)
+			}
+			return &ParenExpr{Expr: expr}, nil
 		}
-		// Expect an RPAREN at the end.
+
+		// Expect an RPAREN at the end of list
 		if tok, pos, lit := p.scanIgnoreWhitespace(); tok != rparen {
 			return nil, newParseError(tokstr(tok, lit), []string{")"}, pos, p.expr)
 		}
-		return &ParenExpr{Expr: expr}, nil
+
+		return &ListLiteral{Values: tagKeys}, nil
 	}
 
 	p.unscan()
@@ -157,7 +165,6 @@ func (p *Parser) parseUnaryExpr() (Expr, error) {
 	if tok == badip {
 		expectations = []string{"a valid IP address"}
 	}
-	p.lparen = false
 
 	return nil, newParseError(tokstr(tok, lit), expectations, pos, p.expr)
 }

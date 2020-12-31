@@ -234,9 +234,9 @@ func (s *scanner) scanNumber() (tok token, pos int, lit string) {
 			}
 		}
 		return ip, pos, buf.String()
-	} else {
-		s.r.unread()
 	}
+	// unread the previously read char
+	s.r.unread()
 
 	// Read as a duration or integer if it doesn't have a fractional part.
 	if !isDecimal {
@@ -262,10 +262,9 @@ func (s *scanner) scanNumber() (tok token, pos int, lit string) {
 				}
 			}
 			return duration, pos, buf.String()
-		} else {
-			s.r.unread()
-			return integer, pos, buf.String()
 		}
+		s.r.unread()
+		return integer, pos, buf.String()
 	}
 
 	return dec, pos, buf.String()

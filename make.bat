@@ -16,18 +16,20 @@ set PYTHON_URL=https://www.python.org/ftp/python/%PYTHON_VER%/python-%PYTHON_VER
 
 set GOBIN=%USERPROFILE%\go\bin
 
-set GOTEST=go test -v -race
+set GOTEST=go test -v -race -gcflags=all=-d=checkptr=0
 set GOVET=go vet
 set GOFMT=gofmt -e -s -l -w
 set GOLINT=%GOBIN%\golint -set_exit_status
 
 set LDFLAGS="-s -w -X github.com/rabbitstack/fibratus/cmd/fibratus/app.version=%VERSION% -X github.com/rabbitstack/fibratus/cmd/fibratus/app.commit=%COMMIT%"
 
-:: In case you want to avoid CGO overhead or don't need a specific feature,
-:: try tweaking these conditional compilation tags. By default, Fibratus is
-:: built with filament, yara and kcap support.
+:: In case you want to avoid CGO overhead or don't need a specific feature, try tweaking the following compilation tags:
+::
+:: kcap: enables capture support
+:: filament: enables running filaments and thus interacting with the CPython interpreter
+:: yara: activates Yara process scanning
 if NOT DEFINED TAGS (
-    set TAGS=kcap,filament,yara
+    set TAGS=""
 )
 
 set PKGS=

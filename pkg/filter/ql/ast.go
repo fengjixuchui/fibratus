@@ -21,6 +21,7 @@
 package ql
 
 import (
+	"github.com/rabbitstack/fibratus/pkg/util/wildcard"
 	"net"
 	"strings"
 )
@@ -68,6 +69,20 @@ func (v *ValuerEval) Eval(expr Expr) interface{} {
 	switch expr := expr.(type) {
 	case *BinaryExpr:
 		return v.evalBinaryExpr(expr)
+	case *NotExpr:
+		switch expr1 := expr.Expr.(type) {
+		case *BinaryExpr:
+			v := v.evalBinaryExpr(expr1)
+			if v == nil {
+				return nil
+			}
+			if val, ok := v.(bool); ok {
+				return !val
+			}
+			return nil
+		default:
+			return nil
+		}
 	case *IntegerLiteral:
 		return expr.Value
 	case *UnsignedLiteral:
@@ -121,6 +136,67 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 			return ok && (lhs == rhs)
 		case neq:
 			return ok && (lhs != rhs)
+		}
+	case int:
+		switch rhs := rhs.(type) {
+		case float64:
+			lhs := float64(lhs)
+			switch expr.Op {
+			case eq:
+				return lhs == rhs
+			case neq:
+				return lhs != rhs
+			case lt:
+				return lhs < rhs
+			case lte:
+				return lhs <= rhs
+			case gt:
+				return lhs > rhs
+			case gte:
+				return lhs >= rhs
+			}
+		case int64:
+			switch expr.Op {
+			case eq:
+				return int64(lhs) == rhs
+			case neq:
+				return int64(lhs) != rhs
+			case lt:
+				return int64(lhs) < rhs
+			case lte:
+				return int64(lhs) <= rhs
+			case gt:
+				return int64(lhs) > rhs
+			case gte:
+				return int64(lhs) >= rhs
+			}
+		case uint64:
+			switch expr.Op {
+			case eq:
+				return uint64(lhs) == rhs
+			case neq:
+				return uint64(lhs) != rhs
+			case lt:
+				if lhs < 0 {
+					return true
+				}
+				return uint64(lhs) < rhs
+			case lte:
+				if lhs < 0 {
+					return true
+				}
+				return uint64(lhs) <= rhs
+			case gt:
+				if lhs < 0 {
+					return false
+				}
+				return uint64(lhs) > rhs
+			case gte:
+				if lhs < 0 {
+					return false
+				}
+				return uint64(lhs) >= rhs
+			}
 		}
 	case uint8:
 		switch rhs := rhs.(type) {
@@ -525,17 +601,33 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 			}
 			return lhs != rhs
 		case contains:
-			rhs, ok := rhs.(string)
-			if !ok {
+			switch rhs := rhs.(type) {
+			case string:
+				return strings.Contains(lhs, rhs)
+			case []string:
+				for _, s := range rhs {
+					if strings.Contains(lhs, s) {
+						return true
+					}
+				}
+				return false
+			default:
 				return false
 			}
-			return strings.Contains(lhs, rhs)
 		case icontains:
-			rhs, ok := rhs.(string)
-			if !ok {
+			switch rhs := rhs.(type) {
+			case string:
+				return strings.Contains(strings.ToLower(lhs), strings.ToLower(rhs))
+			case []string:
+				for _, s := range rhs {
+					if strings.Contains(strings.ToLower(lhs), strings.ToLower(s)) {
+						return true
+					}
+				}
+				return false
+			default:
 				return false
 			}
-			return strings.Contains(strings.ToLower(lhs), strings.ToLower(rhs))
 		case in:
 			rhs, ok := rhs.([]string)
 			if !ok {
@@ -546,18 +638,63 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 					return true
 				}
 			}
+			return false
 		case startswith:
-			rhs, ok := rhs.(string)
-			if !ok {
+			switch rhs := rhs.(type) {
+			case string:
+				return strings.HasPrefix(lhs, rhs)
+			case []string:
+				for _, s := range rhs {
+					if strings.HasPrefix(lhs, s) {
+						return true
+					}
+				}
+				return false
+			default:
 				return false
 			}
-			return strings.HasPrefix(lhs, rhs)
 		case endswith:
-			rhs, ok := rhs.(string)
-			if !ok {
+			switch rhs := rhs.(type) {
+			case string:
+				return strings.HasSuffix(lhs, rhs)
+			case []string:
+				for _, s := range rhs {
+					if strings.HasSuffix(lhs, s) {
+						return true
+					}
+				}
+				return false
+			default:
 				return false
 			}
-			return strings.HasSuffix(lhs, rhs)
+		case matches:
+			switch rhs := rhs.(type) {
+			case string:
+				return wildcard.Match(rhs, lhs)
+			case []string:
+				for _, pat := range rhs {
+					if wildcard.Match(pat, lhs) {
+						return true
+					}
+				}
+				return false
+			default:
+				return false
+			}
+		case imatches:
+			switch rhs := rhs.(type) {
+			case string:
+				return wildcard.Match(strings.ToLower(rhs), strings.ToLower(lhs))
+			case []string:
+				for _, pat := range rhs {
+					if wildcard.Match(strings.ToLower(pat), strings.ToLower(lhs)) {
+						return true
+					}
+				}
+				return false
+			default:
+				return false
+			}
 		}
 	case net.IP:
 		switch expr.Op {
@@ -573,6 +710,17 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 				return false
 			}
 			return !lhs.Equal(rhs)
+		case in:
+			rhs, ok := rhs.([]string)
+			if !ok {
+				return false
+			}
+			for _, s := range rhs {
+				if net.ParseIP(s).Equal(lhs) {
+					return true
+				}
+			}
+			return false
 		}
 	case []string:
 		switch expr.Op {
@@ -586,6 +734,7 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 					return true
 				}
 			}
+			return false
 		case in:
 			rhs, ok := rhs.([]string)
 			if !ok {
@@ -598,6 +747,7 @@ func (v *ValuerEval) evalBinaryExpr(expr *BinaryExpr) interface{} {
 					}
 				}
 			}
+			return false
 		}
 	}
 

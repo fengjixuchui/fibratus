@@ -54,7 +54,7 @@ var (
 // unmarshalTimestampErrors counts timestamp unmarshal errors
 var unmarshalTimestampErrors = expvar.NewInt("kevent.timestamp.unmarshal.errors")
 
-// Marshal produces a byte stream of the kernel event suitable for writing to disk.
+// MarshalRaw produces a byte stream of the kernel event suitable for writing to disk.
 func (kevt *Kevent) MarshalRaw() []byte {
 	b := make([]byte, 0)
 
@@ -181,7 +181,7 @@ func (kevt *Kevent) MarshalRaw() []byte {
 	return b
 }
 
-// Unmarshal recovers the state of the kernel event from the byte stream.
+// UnmarshalRaw recovers the state of the kernel event from the byte stream.
 func (kevt *Kevent) UnmarshalRaw(b []byte, ver kcapver.Version) error {
 	if len(b) < 34 {
 		return fmt.Errorf("expected at least 34 bytes but got %d bytes", len(b))
