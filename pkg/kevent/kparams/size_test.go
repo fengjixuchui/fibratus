@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 by Nedim Sabic Sabic
+ * Copyright 2020-2021 by Nedim Sabic Sabic
  * https://www.fibratus.io
  * All Rights Reserved.
  *
@@ -16,21 +16,15 @@
  * limitations under the License.
  */
 
-package cpython
+package kparams
 
 import (
-	"github.com/magiconair/properties/assert"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
-func TestDict(t *testing.T) {
-	dict := NewDict()
-	require.False(t, dict.IsNull())
-
-	dict.Insert(PyUnicodeFromString("filename"), PyUnicodeFromString("C:\\Windows\\System32\\kernel32.dll"))
-	v := dict.Get(PyUnicodeFromString("filename"))
-	require.NotNil(t, v)
-
-	assert.Equal(t, `C:\Windows\System32\kernel32.dll`, v.String())
+func TestSizeOf(t *testing.T) {
+	require.Equal(t, uint32(4), SizeOf(ProcessID))
+	require.Equal(t, uint32(8), SizeOf(RegKeyHandle))
+	require.Equal(t, uint32(0), SizeOf(ProcessName))
 }

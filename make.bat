@@ -19,9 +19,12 @@ set GOBIN=%USERPROFILE%\go\bin
 set GOTEST=go test -v -race -gcflags=all=-d=checkptr=0
 set GOVET=go vet
 set GOFMT=gofmt -e -s -l -w
-set GOLINT=%GOBIN%\golint -set_exit_status
+set GOLINT=%GOBIN%\golangci-lint
 
-set LDFLAGS="-s -w -X github.com/rabbitstack/fibratus/cmd/fibratus/app.version=%VERSION% -X github.com/rabbitstack/fibratus/cmd/fibratus/app.commit=%COMMIT%"
+FOR /F "tokens=* USEBACKQ" %%F IN (`powershell -Command get-date -format "{dd-MM-yyyyHH:mm:ss}"`) DO (
+    SET BUILD_DATE=%%F
+)
+set LDFLAGS="-s -w -X github.com/rabbitstack/fibratus/cmd/fibratus/app.version=%VERSION% -X github.com/rabbitstack/fibratus/cmd/fibratus/app.commit=%COMMIT% -X github.com/rabbitstack/fibratus/cmd/fibratus/app.built=%BUILD_DATE%"
 
 :: In case you want to avoid CGO overhead or don't need a specific feature, try tweaking the following compilation tags:
 ::
@@ -36,6 +39,7 @@ set PKGS=
 :: Get the list of packages that we'll use to run tests/linter
 for /f %%p in ('go list .\...') do call set "PKGS=%%PKGS%% %%p"
 
+
 if "%~1"=="build" goto build
 if "%~1"=="test" goto test
 if "%~1"=="lint" goto lint
@@ -48,15 +52,18 @@ if "%~1"=="rsrc" goto rsrc
 :build
 :: set PKG_CONFIG_PATH=pkg-config
 go build -ldflags %LDFLAGS% -tags %TAGS% -o .\cmd\fibratus\fibratus.exe .\cmd\fibratus
+if errorlevel 1 goto fail
 goto :EOF
 
 :test
-%GOTEST% %PKGS%
+%GOTEST% -tags %TAGS% %PKGS%
+if errorlevel 1 goto fail
 goto :EOF
 
 :lint
 %GOVET%
-%GOLINT% %PKGS%
+%GOLINT% run
+if errorlevel 1 goto fail
 goto :EOF
 
 :fmt
@@ -70,6 +77,7 @@ goto :EOF
 :rsrc
 set RC_VER=%VERSION:.=,%
 windres --define RC_VER=%RC_VER% --define VER=%VERSION% -i cmd\fibratus\fibratus.rc -O coff -o cmd\fibratus\fibratus.syso
+if errorlevel 1 goto fail
 goto :EOF
 
 :pkg
@@ -110,3 +118,8 @@ goto :EOF
 :clean
 rm cmd\fibratus\fibratus.exe
 goto :EOF
+
+:fail
+echo Failed with error #%errorlevel%.
+exit /b %errorlevel%
+

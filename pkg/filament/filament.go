@@ -292,7 +292,7 @@ func New(
 				return nil, fmt.Errorf("filament init error: %v", err)
 			}
 			if len(f.initErrors) > 0 {
-				return nil, multierror.Wrap(f.initErrors)
+				return nil, multierror.Wrap(f.initErrors...)
 			}
 		}
 	}
@@ -416,6 +416,9 @@ func (f *filament) Close() error {
 		f.gil.Unlock()
 	}
 	f.close <- struct{}{}
+	if f.tick != nil {
+		f.close <- struct{}{}
+	}
 	if f.tick != nil {
 		f.tick.Stop()
 	}
@@ -548,6 +551,7 @@ func (f *filament) onInterval(fn *cpython.PyObject) {
 				f.fnerrs <- err
 			}
 			f.gil.Unlock()
+		case <-f.close:
 		}
 	}
 }

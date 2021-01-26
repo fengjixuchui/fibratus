@@ -323,6 +323,7 @@ func (r *reader) readVersionInfo(vsDir *rdir) (map[string]string, error) {
 				break
 			default:
 				errs = append(errs, fmt.Errorf("unknown StringFileInfo string: %s", fileInfoString))
+				//nolint:gosimple
 				break
 			}
 			// increment and align the string file info offset. Use the offset to check if we've
@@ -335,7 +336,7 @@ func (r *reader) readVersionInfo(vsDir *rdir) (map[string]string, error) {
 	}
 
 	if len(vers) == 0 && len(errs) > 0 {
-		return nil, multierror.Wrap(errs)
+		return nil, multierror.Wrap(errs...)
 	}
 
 	return vers, nil

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 by Nedim Sabic Sabic
+ * Copyright 2020-2021 by Nedim Sabic Sabic
  * https://www.fibratus.io
  * All Rights Reserved.
  *
@@ -16,21 +16,27 @@
  * limitations under the License.
  */
 
-package cpython
+package common
 
 import (
-	"github.com/magiconair/properties/assert"
-	"github.com/stretchr/testify/require"
-	"testing"
+	log "github.com/sirupsen/logrus"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
-func TestDict(t *testing.T) {
-	dict := NewDict()
-	require.False(t, dict.IsNull())
+// Signals set ups the signal handler.
+func Signals() chan struct{} {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	dict.Insert(PyUnicodeFromString("filename"), PyUnicodeFromString("C:\\Windows\\System32\\kernel32.dll"))
-	v := dict.Get(PyUnicodeFromString("filename"))
-	require.NotNil(t, v)
+	stopCh := make(chan struct{})
 
-	assert.Equal(t, `C:\Windows\System32\kernel32.dll`, v.String())
+	go func() {
+		sig := <-sigCh
+		log.Infof("got signal %q, shutting down...", sig)
+		stopCh <- struct{}{}
+	}()
+
+	return stopCh
 }

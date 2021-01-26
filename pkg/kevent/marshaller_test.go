@@ -74,6 +74,7 @@ func TestMarshaller(t *testing.T) {
 	require.NotEmpty(t, b)
 
 	clone, err := NewFromKcap(b)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint64(2), clone.Seq)
 	assert.Equal(t, uint32(859), clone.PID)
@@ -204,7 +205,7 @@ func TestKeventMarshalJSON(t *testing.T) {
 }
 
 func TestUnmarshalHugeHandles(t *testing.T) {
-	b, err := ioutil.ReadFile("C:\\handles.json")
+	b, err := ioutil.ReadFile("_fixtures\\handles.json")
 	require.NoError(t, err)
 	handles := make([]htypes.Handle, 0)
 	err = json.Unmarshal(b, &handles)
@@ -515,7 +516,9 @@ func BenchmarkKeventMarshalJSONStdlib(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		json.Marshal(kevt)
+		if _, err := json.Marshal(kevt); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

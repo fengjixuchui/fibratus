@@ -20,15 +20,13 @@ package app
 
 import (
 	"fmt"
+	"github.com/rabbitstack/fibratus/cmd/fibratus/common"
 	"github.com/rabbitstack/fibratus/pkg/aggregator"
 	"github.com/rabbitstack/fibratus/pkg/api"
 	"github.com/rabbitstack/fibratus/pkg/config"
 	"github.com/rabbitstack/fibratus/pkg/handle"
 	"github.com/rabbitstack/fibratus/pkg/kstream"
-	"github.com/rabbitstack/fibratus/pkg/outputs"
 	"github.com/rabbitstack/fibratus/pkg/ps"
-	"github.com/rabbitstack/fibratus/pkg/syscall/security"
-	logger "github.com/rabbitstack/fibratus/pkg/util/log"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -56,10 +54,23 @@ var restartSvcCmd = &cobra.Command{
 	Short: "Restart fibratus service",
 }
 
-var svcConfig = config.NewWithOpts(config.WithRun())
+var (
+	// windows service command config
+	svcConfig = config.NewWithOpts(config.WithRun())
+
+	// windows event logger
+	evtlog debug.Log
+
+	ctrl     kstream.KtraceController
+	consumer kstream.Consumer
+	aggr     *aggregator.BufferedAggregator
+)
 
 func init() {
+
+	// initialize service config
 	svcConfig.MustViperize(startSvcCmd)
+
 }
 
 func startService(cmd *cobra.Command, args []string) error {
@@ -68,7 +79,9 @@ func startService(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("couldn't connect to Windows Service Manager: %v", err)
 	}
 	m := &mgr.Mgr{Handle: h}
-	defer m.Disconnect()
+	defer func() {
+		_ = m.Disconnect()
+	}()
 	s, err := windows.OpenService(
 		m.Handle,
 		windows.StringToUTF16Ptr(svcName),
@@ -78,7 +91,9 @@ func startService(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not open fibratus service: %v", err)
 	}
 	scm := &mgr.Service{Name: svcName, Handle: s}
-	defer scm.Close()
+	defer func() {
+		_ = scm.Close()
+	}()
 	err = scm.Start()
 	if err != nil {
 		return fmt.Errorf("could not start fibratus service: %v", err)
@@ -116,7 +131,9 @@ func stopSvc() error {
 		return fmt.Errorf("couldn't connect to Windows Service Manager: %v", err)
 	}
 	m := &mgr.Mgr{Handle: h}
-	defer m.Disconnect()
+	defer func() {
+		_ = m.Disconnect()
+	}()
 
 	s, err := windows.OpenService(
 		m.Handle,
@@ -127,7 +144,9 @@ func stopSvc() error {
 		return fmt.Errorf("could not open fibratus service: %v", err)
 	}
 	scm := &mgr.Service{Name: svcName, Handle: s}
-	defer scm.Close()
+	defer func() {
+		_ = scm.Close()
+	}()
 
 	status, err := scm.Control(svc.Stop)
 	if err != nil {
@@ -149,93 +168,78 @@ func stopSvc() error {
 
 type fsvc struct{}
 
-var evtlog debug.Log
-
-var sktracec kstream.KtraceController
-var skstreamc kstream.Consumer
-var sagg *aggregator.BufferedAggregator
-
 func (s *fsvc) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
 	changes <- svc.Status{State: svc.StartPending}
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
 	if err := s.run(); err != nil {
-		evtlog.Error(0xc000000B, err.Error())
+		_ = evtlog.Error(0xc000000B, err.Error())
 		changes <- svc.Status{State: svc.Stopped}
 		return false, 1
 	}
 
 loop:
 	for {
-		select {
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				changes <- c.CurrentStatus
-				time.Sleep(100 * time.Millisecond)
-				changes <- c.CurrentStatus
-			case svc.Stop:
-				break loop
-			case svc.Shutdown:
-				break loop
-			}
+		c := <-r
+		switch c.Cmd {
+		case svc.Interrogate:
+			changes <- c.CurrentStatus
+			time.Sleep(100 * time.Millisecond)
+			changes <- c.CurrentStatus
+		case svc.Stop:
+			break loop
+		case svc.Shutdown:
+			break loop
 		}
 	}
 
 	changes <- svc.Status{State: svc.StopPending}
-	if sktracec != nil {
-		sktracec.CloseKtrace()
+
+	if ctrl != nil {
+		_ = ctrl.CloseKtrace()
 	}
-	if skstreamc != nil {
-		skstreamc.CloseKstream()
+	if consumer != nil {
+		_ = consumer.CloseKstream()
 	}
-	if sagg != nil {
-		sagg.Stop()
+	if aggr != nil {
+		_ = aggr.Stop()
 	}
-	handle.CloseTimeout()
-	api.CloseServer()
+	_ = handle.CloseTimeout()
+	_ = api.CloseServer()
+
 	changes <- svc.Status{State: svc.Stopped}
 
 	return true, 0
 }
 
 func (s *fsvc) run() error {
-	if err := svcConfig.TryLoadFile(svcConfig.GetConfigFile()); err != nil {
+	// initialize config and logger
+	if err := common.Init(svcConfig, true); err != nil {
 		return err
 	}
-	if err := svcConfig.Init(); err != nil {
-		return err
-	}
-	if err := svcConfig.Validate(); err != nil {
-		return err
-	}
-	// ask for debug privileges
-	if svcConfig.DebugPrivilege {
-		security.SetDebugPrivilege()
-	}
-	if err := logger.InitFromConfig(svcConfig.Log); err != nil {
-		return err
-	}
-	sktracec = kstream.NewKtraceController(svcConfig.Kstream)
-	err := sktracec.StartKtrace()
+
+	ctrl = kstream.NewKtraceController(svcConfig.Kstream)
+	err := ctrl.StartKtrace()
 	if err != nil {
 		return err
 	}
+
 	// initialize handle/process snapshotters and try to open the kernel event stream
 	hsnap := handle.NewSnapshotter(svcConfig, nil)
 	psnap := ps.NewSnapshotter(hsnap, svcConfig)
-	skstreamc = kstream.NewConsumer(sktracec, psnap, hsnap, svcConfig)
+	consumer = kstream.NewConsumer(ctrl, psnap, hsnap, svcConfig)
 	// open the kernel event stream, start processing events and forwarding to outputs
-	err = skstreamc.OpenKstream()
+	err = consumer.OpenKstream()
 	if err != nil {
 		return err
 	}
-	sagg, err = aggregator.NewBuffered(
-		skstreamc.Events(),
-		skstreamc.Errors(),
+
+	aggr, err = aggregator.NewBuffered(
+		consumer.Events(),
+		consumer.Errors(),
 		svcConfig.Aggregator,
-		outputs.Config{Type: svcConfig.Output.Type, Output: svcConfig.Output.Output},
+		svcConfig.Output,
 		svcConfig.Transformers,
 		svcConfig.Alertsenders,
 	)
@@ -245,6 +249,7 @@ func (s *fsvc) run() error {
 	if err := api.StartServer(svcConfig); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -255,11 +260,13 @@ func RunService() {
 	if err != nil {
 		return
 	}
-	defer evtlog.Close()
+	defer func() {
+		_ = evtlog.Close()
+	}()
 
 	err = svc.Run(svcName, &fsvc{})
 	if err != nil {
-		evtlog.Error(0xc0000008, err.Error())
+		_ = evtlog.Error(0xc0000008, err.Error())
 		return
 	}
 }

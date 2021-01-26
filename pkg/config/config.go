@@ -203,7 +203,7 @@ func (c Config) GetConfigFile() string {
 	return c.viper.GetString(configFile)
 }
 
-// MustViperize adds the flag set to the Cobra command and binds them within Viper flags.
+// MustViperize adds the flag set to the Cobra command and binds them within the Viper flags.
 func (c *Config) MustViperize(cmd *cobra.Command) {
 	cmd.PersistentFlags().AddFlagSet(c.flags)
 	if err := c.viper.BindPFlags(cmd.PersistentFlags()); err != nil {
@@ -280,12 +280,12 @@ func (c *Config) Validate() error {
 	// validate config file content
 	valid, errs := validate(out)
 	if !valid || len(errs) > 0 {
-		return fmt.Errorf("invalid config: %v", multierror.Wrap(errs))
+		return fmt.Errorf("invalid config: %v", multierror.Wrap(errs...))
 	}
 	// now validate the Viper config flags
 	valid, errs = validate(c.viper.AllSettings())
 	if !valid || len(errs) > 0 {
-		return fmt.Errorf("invalid config: %v", multierror.Wrap(errs))
+		return fmt.Errorf("invalid config: %v", multierror.Wrap(errs...))
 	}
 	return nil
 }

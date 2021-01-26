@@ -171,7 +171,7 @@ func TestSnapshotterWritePSThreadMissingProc(t *testing.T) {
 	ps := psnap.Find(pid)
 	require.NotNil(t, ps)
 	assert.Equal(t, pid, ps.PID)
-	assert.Contains(t, ps.Name, "ps.exe")
+	assert.Contains(t, ps.Name, "ps")
 	assert.True(t, len(ps.Envs) > 0)
 }
 
@@ -213,9 +213,10 @@ func TestReapDeadProcesses(t *testing.T) {
 	var si syscall.StartupInfo
 	var pi syscall.ProcessInformation
 
-	argv := syscall.StringToUTF16Ptr(filepath.Join(os.Getenv("windir"), "notepad.exe"))
+	argv, err := syscall.UTF16PtrFromString(filepath.Join(os.Getenv("windir"), "notepad.exe"))
+	require.NoError(t, err)
 
-	err := syscall.CreateProcess(
+	err = syscall.CreateProcess(
 		nil,
 		argv,
 		nil,

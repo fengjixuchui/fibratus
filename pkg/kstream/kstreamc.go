@@ -347,6 +347,9 @@ func (k *kstreamConsumer) processKevent(evt *etw.EventRecord) error {
 			}
 			defer h.Close()
 			pid, err = process.GetPIDFromThread(h)
+			if err != nil {
+				log.Debugf("unable to get the pid from thread ID %d: %v", threadID, err)
+			}
 		}
 		if pid != winerrno.InvalidPID {
 			kpars.Append(kparams.ProcessID, kparams.PID, pid)
@@ -442,24 +445,31 @@ func (k *kstreamConsumer) produceParams(ktype ktypes.Ktype, evt *etw.EventRecord
 		if _, ok := k.ignoredKparams[kparName]; ok {
 			continue
 		}
+		kparName = kparams.Canonicalize(kparName)
+		// discard unknown canonical names
+		if kparName == "" {
+			continue
+		}
 
 		descriptor := &tdh.PropertyDataDescriptor{
 			PropertyName: propp,
 			ArrayIndex:   0xFFFFFFFF,
 		}
-		size, err := getPropertySize(evt, descriptor)
-		if err != nil || size == 0 {
-			continue
+		// try to get the param size for static types
+		// and fallback to TdhGetPropertySize for the
+		// dynamic event parameters such as paths
+		// process names, registry keys and so on
+		size := kparams.SizeOf(kparName)
+		if size == 0 {
+			var err error
+			size, err = getPropertySize(evt, descriptor)
+			if err != nil || size == 0 {
+				continue
+			}
 		}
 
 		buffer := make([]byte, size)
 		if err := getProperty(evt, descriptor, size, buffer); err != nil {
-			continue
-		}
-
-		kparName = kparams.Canonicalize(kparName)
-		// discard unknown canonical names
-		if kparName == "" {
 			continue
 		}
 
@@ -478,7 +488,7 @@ func (k *kstreamConsumer) produceParams(ktype ktypes.Ktype, evt *etw.EventRecord
 
 // getParam extracts parameter value from the property buffer and builds the kparam structure.
 func getParam(name string, buffer []byte, size uint32, nonStructType tdh.NonStructType) (*kevent.Kparam, error) {
-	if buffer == nil || len(buffer) == 0 {
+	if len(buffer) == 0 {
 		return nil, errors.New("property buffer is empty")
 	}
 
@@ -585,11 +595,7 @@ func (k *kstreamConsumer) isDropped(kevt *kevent.Kevent) bool {
 	if k.filter == nil {
 		return false
 	}
-	filtered := k.filter.Run(kevt)
-	if !filtered {
-		return true
-	}
-	return false
+	return !k.filter.Run(kevt)
 }
 
 // dropBlacklistProc drops the events from the blacklist if it is linked to particular process name.
